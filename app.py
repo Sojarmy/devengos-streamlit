@@ -341,6 +341,16 @@ def buscar_columna_texto(ws, texto_objetivo, fila=1):
             return col
     return None
 
+_ILLEGAL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
+
+def limpiar_excel(valor):
+    
+    if valor is None:
+        return None
+    if isinstance(valor, str):
+        v = valor.replace("\r", " ").replace("\n", " ")
+        return _ILLEGAL_RE.sub("", v)
+    return valor
 
 def obtener_datos_oc(session, codigo_oc):
     url = "https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json"
@@ -463,7 +473,7 @@ def ejecutar_programa_2(ruta_maestro):
 
             for campo, valor in datos.items():
                 if campo in headers:
-                    ws.cell(row=fila, column=headers[campo]).value = valor
+                    ws.cell(row=fila, column=headers[campo]).value = limpiar_excel(valor)
 
             fila += 1
 
