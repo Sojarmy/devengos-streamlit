@@ -531,61 +531,60 @@ with colA:
 # -------------------------
 # PASO 2: Seleccionar pestañas + Ejecutar Programa 2
 # -------------------------
+# -------------------------
+# PASO 2: Seleccionar pestañas + Ejecutar Programa 2
+# -------------------------
 st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar con API")
 
 if not st.session_state.excel_bytes_p1:
-    st.info("Primero ejecuta **Programa 1** para generar el Excel y obtener la lista de pestañas.")
+    st.info("Primero ejecuta **Programa 1** para generar el Excel.")
 else:
     hojas = st.session_state.hojas_generadas
 
-# ✅ Filtro
-filtro = st.text_input("🔎 Filtro (ej: 2201, 220100, etc.)", value="", key="filtro_cuentas").strip()
+    # 🔎 Filtro
+    filtro = st.text_input("🔎 Filtro de cuentas (ej: 2201)", value="", key="filtro_cuentas").strip()
+    if filtro:
+        hojas_filtradas = [h for h in hojas if filtro in h]
+    else:
+        hojas_filtradas = hojas
 
-if filtro:
-    hojas_filtradas = [h for h in hojas if filtro in h]
-else:
-    hojas_filtradas = hojas
+    # Botones rápidos
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if st.button("✅ Seleccionar todas"):
+            st.session_state.sel_hojas_api = hojas_filtradas
+    with col2:
+        if st.button("🧹 Limpiar selección"):
+            st.session_state.sel_hojas_api = []
+    with col3:
+        st.caption(f"{len(hojas_filtradas)} de {len(hojas)} cuentas")
 
-# ✅ Botones rápidos
-col1, col2, col3 = st.columns(3)
+    # Selector
+    seleccion = st.multiselect(
+        "Cuentas a completar (Programa 2)",
+        options=hojas_filtradas,
+        default=st.session_state.get("sel_hojas_api", hojas_filtradas),
+        key="sel_hojas_api"
+    )
 
-with col1:
-    if st.button("✅ Seleccionar todas (filtradas)"):
-        st.session_state.sel_hojas_api = hojas_filtradas
+    # Botón Programa 2 (MISMA indentación que el selector)
+    if st.button("2️⃣ Completar API (Programa 2)"):
+        if not seleccion:
+            st.warning("No seleccionaste ninguna cuenta.")
+            st.stop()
 
-with col2:
-    if st.button("🧹 Limpiar selección"):
-        st.session_state.sel_hojas_api = []
+        with st.spinner("Consultando API y completando Excel..."):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
+                ruta_maestro = tmp / "DevengosCuentas2026.xlsx"
+                ruta_maestro.write_bytes(st.session_state.excel_bytes_p1)
 
-with col3:
-    st.caption(f"Mostrando {len(hojas_filtradas)} de {len(hojas)} cuentas")
+                ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=set(seleccion))
 
-# ✅ Selector final
-seleccion = st.multiselect(
-    "Cuentas a completar (Programa 2)",
-    options=hojas_filtradas,
-    default=st.session_state.get("sel_hojas_api", hojas_filtradas[:5] if len(hojas_filtradas) > 5 else hojas_filtradas),
-    key="sel_hojas_api"
-)
+                st.session_state.excel_bytes_final = ruta_maestro.read_bytes()
 
+        st.success(f"✅ Programa 2 listo. Cuentas procesadas: {len(seleccion)}")
 
-    with colB:
-        if st.button("2️⃣ Completar API (Programa 2)"):
-            if not seleccion:
-                st.warning("No seleccionaste ninguna pestaña.")
-                st.stop()
-
-            with st.spinner("Consultando API y completando Excel..."):
-                with tempfile.TemporaryDirectory() as tmpdir:
-                    tmp = Path(tmpdir)
-                    ruta_maestro = tmp / "DevengosCuentas2026.xlsx"
-                    ruta_maestro.write_bytes(st.session_state.excel_bytes_p1)
-
-                    ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=set(seleccion))
-
-                    st.session_state.excel_bytes_final = ruta_maestro.read_bytes()
-
-            st.success(f"✅ Programa 2 listo. Hojas completadas: {len(seleccion)}")
 
 # -------------------------
 # Descarga final
