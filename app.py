@@ -475,69 +475,114 @@ def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
 # =========================
 # UI + DESCARGA (NO se rompe)
 # =========================
-sigfe_file = st.file_uploader("1) Suba el SA_MayorPresupuestario.xls aqui master, tal cual", type=["xls", "xlsx"])
+# =========================
+# UI (2 PASOS): P1 -> elegir pestañas -> P2
+# =========================
+sigfe_file = st.file_uploader("1) Subir SA_MayorPresupuestario.xls", type=["xls", "xlsx"])
 maestro_file = st.file_uploader("2) (Opcional) Subir DevengosCuentas2026.xlsx existente", type=["xlsx"])
 
-if "excel_bytes" not in st.session_state:
-    st.session_state.excel_bytes = None
+# Estados persistentes
+if "excel_bytes_p1" not in st.session_state:
+    st.session_state.excel_bytes_p1 = None  # Excel después de P1
+if "hojas_generadas" not in st.session_state:
+    st.session_state.hojas_generadas = []   # Lista de pestañas del Excel P1
+if "excel_bytes_final" not in st.session_state:
+    st.session_state.excel_bytes_final = None  # Excel final (después de P2)
 
-c1, c2 = st.columns(2)
-with c1:
-    run_p1 = st.checkbox("Ejecutar Programa 1", value=True)
-with c2:
-    run_p2 = st.checkbox("Ejecutar Programa 2 (API)", value=True)
+EXCLUIDAS = {"220400400101", "220400400102"}
 
-# Selector de cuentas a completar con API (se rellena después de tener un maestro)
-st.markdown("### 🎯 Programa 2: elegir cuentas a completar")
+colA, colB = st.columns(2)
 
-modo_cuentas = st.radio(
-    "Modo de selección",
-    ["Todas (excepto excluidas)", "Seleccionar manualmente"],
-    horizontal=True
-)
-cuentas_seleccionadas = None  # None = todas
+# -------------------------
+# PASO 1: Ejecutar Programa 1
+# -------------------------
+with colA:
+    if st.button("1️⃣ Generar Excel (Programa 1)"):
+        if sigfe_file is None:
+            st.error("Falta SA_MayorPresupuestario.xls")
+            st.stop()
 
-if st.button("Procesar"):
-    if sigfe_file is None:
-        st.error("Falta SA_MayorPresupuestario.xls")
-        st.stop()
+        with st.spinner("Generando Devengos (Programa 1)..."):
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
 
-    with st.spinner("Procesando..."):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
+                ruta_sigfe = tmp / "SA_MayorPresupuestario.xls"
+                ruta_sigfe.write_bytes(sigfe_file.getbuffer())
 
-            ruta_sigfe = tmp / "SA_MayorPresupuestario.xls"
-            ruta_sigfe.write_bytes(sigfe_file.getbuffer())
+                ruta_maestro = tmp / "DevengosCuentas2026.xlsx"
+                if maestro_file is not None:
+                    ruta_maestro.write_bytes(maestro_file.getbuffer())
 
-            ruta_maestro = tmp / "DevengosCuentas2026.xlsx"
-            if maestro_file is not None:
-                ruta_maestro.write_bytes(maestro_file.getbuffer())
-
-            if run_p1:
+                # Ejecuta P1
                 ejecutar_programa_1(str(ruta_sigfe), str(ruta_maestro))
 
-            if run_p2:
-                wb_temp = load_workbook(str(ruta_maestro))
-                hojas = wb_temp.sheetnames
-                excluidas = {"220400400101", "220400400102"}
-                hojas_disponibles = [h for h in hojas if h not in excluidas]
-                if modo_cuentas == "Seleccionar manualmente":
-                  cuentas_seleccionadas = st.multiselect("Selecciona cuentas a completar ahora",
-                      options=hojas_disponibles,
-                      default=hojas_disponibles[:2] if len(hojas_disponibles) >= 2 else hojas_disponibles,
-                      key="sel_cuentas_api"
-                  )
+                # Guarda Excel en memoria (persistente)
+                st.session_state.excel_bytes_p1 = ruta_maestro.read_bytes()
 
-                if not cuentas_seleccionadas:
-                    st.warning("No seleccionaste ninguna cuenta. Se omite Programa 2.")
-                else:
-                     ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=set(cuentas_seleccionadas))
-            else:
-                ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=None)
+                # Lee pestañas generadas
+                wb_tmp = load_workbook(str(ruta_maestro), read_only=True)
+                hojas = [h for h in wb_tmp.sheetnames if h not in EXCLUIDAS]
+                st.session_state.hojas_generadas = hojas
 
+                st.session_state.excel_bytes_final = None  # resetea final si rehaces P1
 
-            st.session_state.excel_bytes = ruta_maestro.read_bytes()
-            st.success(f"✅ Listo. Archivo generado: {len(st.session_state.excel_bytes):,} bytes")
+                st.success(f"✅ Programa 1 listo. Pestañas generadas: {len(hojas)}")
+
+# -------------------------
+# PASO 2: Seleccionar pestañas + Ejecutar Programa 2
+# -------------------------
+st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar con API")
+
+if not st.session_state.excel_bytes_p1:
+    st.info("Primero ejecuta **Programa 1** para generar el Excel y obtener la lista de pestañas.")
+else:
+    hojas = st.session_state.hojas_generadas
+
+    seleccion = st.multiselect(
+        "Cuentas a completar (Programa 2)",
+        options=hojas,
+        default=hojas[:5] if len(hojas) > 5 else hojas,  # por defecto algunas
+        key="sel_hojas_api"
+    )
+
+    with colB:
+        if st.button("2️⃣ Completar API (Programa 2)"):
+            if not seleccion:
+                st.warning("No seleccionaste ninguna pestaña.")
+                st.stop()
+
+            with st.spinner("Consultando API y completando Excel..."):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    tmp = Path(tmpdir)
+                    ruta_maestro = tmp / "DevengosCuentas2026.xlsx"
+                    ruta_maestro.write_bytes(st.session_state.excel_bytes_p1)
+
+                    ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=set(seleccion))
+
+                    st.session_state.excel_bytes_final = ruta_maestro.read_bytes()
+
+            st.success(f"✅ Programa 2 listo. Hojas completadas: {len(seleccion)}")
+
+# -------------------------
+# Descarga final
+# -------------------------
+st.markdown("### 3️⃣ Descargar")
+
+if st.session_state.excel_bytes_final:
+    st.download_button(
+        "⬇️ Descargar DevengosCuentas2026 (FINAL)",
+        data=st.session_state.excel_bytes_final,
+        file_name="DevengosCuentas2026.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+elif st.session_state.excel_bytes_p1:
+    st.download_button(
+        "⬇️ Descargar DevengosCuentas2026 (Solo Programa 1)",
+        data=st.session_state.excel_bytes_p1,
+        file_name="DevengosCuentas2026.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
 
 if st.session_state.excel_bytes:
     st.download_button(
