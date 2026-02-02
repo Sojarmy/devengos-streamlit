@@ -538,12 +538,36 @@ if not st.session_state.excel_bytes_p1:
 else:
     hojas = st.session_state.hojas_generadas
 
-    seleccion = st.multiselect(
-        "Cuentas a completar (Programa 2)",
-        options=hojas,
-        default=hojas[:5] if len(hojas) > 5 else hojas,  # por defecto algunas
-        key="sel_hojas_api"
-    )
+# ✅ Filtro
+filtro = st.text_input("🔎 Filtro (ej: 2201, 220100, etc.)", value="", key="filtro_cuentas").strip()
+
+if filtro:
+    hojas_filtradas = [h for h in hojas if filtro in h]
+else:
+    hojas_filtradas = hojas
+
+# ✅ Botones rápidos
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    if st.button("✅ Seleccionar todas (filtradas)"):
+        st.session_state.sel_hojas_api = hojas_filtradas
+
+with col2:
+    if st.button("🧹 Limpiar selección"):
+        st.session_state.sel_hojas_api = []
+
+with col3:
+    st.caption(f"Mostrando {len(hojas_filtradas)} de {len(hojas)} cuentas")
+
+# ✅ Selector final
+seleccion = st.multiselect(
+    "Cuentas a completar (Programa 2)",
+    options=hojas_filtradas,
+    default=st.session_state.get("sel_hojas_api", hojas_filtradas[:5] if len(hojas_filtradas) > 5 else hojas_filtradas),
+    key="sel_hojas_api"
+)
+
 
     with colB:
         if st.button("2️⃣ Completar API (Programa 2)"):
@@ -566,23 +590,21 @@ else:
 # -------------------------
 # Descarga final
 # -------------------------
+
 st.markdown("### 3️⃣ Descargar")
 
-if st.session_state.excel_bytes_final:
-    st.download_button(
-        "⬇️ Descargar DevengosCuentas2026 (FINAL)",
-        data=st.session_state.excel_bytes_final,
-        file_name="DevengosCuentas2026.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
-elif st.session_state.excel_bytes_p1:
-    st.download_button(
-        "⬇️ Descargar DevengosCuentas2026 (Solo Programa 1)",
-        data=st.session_state.excel_bytes_p1,
-        file_name="DevengosCuentas2026.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    )
+# ✅ Un solo archivo: siempre el último generado (P2 si existe, si no P1)
+excel_actual = st.session_state.excel_bytes_final or st.session_state.excel_bytes_p1
 
+if excel_actual:
+    st.download_button(
+        "⬇️ Descargar DevengosCuentas2026.xlsx",
+        data=excel_actual,
+        file_name="DevengosCuentas2026.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+else:
+    st.info("Aún no hay archivo para descargar. Ejecuta Programa 1.")
 
 if st.session_state.excel_bytes:
     st.download_button(
