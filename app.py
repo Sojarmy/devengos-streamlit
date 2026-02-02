@@ -341,17 +341,6 @@ def buscar_columna_texto(ws, texto_objetivo, fila=1):
             return col
     return None
 
-_ILLEGAL_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
-
-def limpiar_excel(valor):
-    
-    if valor is None:
-        return None
-    if isinstance(valor, str):
-        v = valor.replace("\r", " ").replace("\n", " ")
-        return _ILLEGAL_RE.sub("", v)
-    return valor
-
 def obtener_datos_oc(session, codigo_oc):
     url = "https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json"
     params = {"codigo": codigo_oc, "ticket": API_KEY}
@@ -419,7 +408,7 @@ def obtener_datos_oc(session, codigo_oc):
     return None, last_err or "sin datos"
 
 
-def ejecutar_programa_2(ruta_maestro):
+def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
     wb = load_workbook(ruta_maestro)
 
     # ✅ PROBAR SOLO HOJA 1 y 2
@@ -432,6 +421,9 @@ def ejecutar_programa_2(ruta_maestro):
 
     for ws in wb.worksheets:
         if ws.title in HOJAS_OMITIDAS:
+            continue
+
+        if hojas_permitidas is not None and ws.title not in hojas_permitidas:
             continue
 
         headers = mapear_headers_fila1(ws)
@@ -473,7 +465,7 @@ def ejecutar_programa_2(ruta_maestro):
 
             for campo, valor in datos.items():
                 if campo in headers:
-                    ws.cell(row=fila, column=headers[campo]).value = limpiar_excel(valor)
+                    ws.cell(row=fila, column=headers[campo]).value = valor
 
             fila += 1
 
@@ -495,6 +487,16 @@ with c1:
 with c2:
     run_p2 = st.checkbox("Ejecutar Programa 2 (API)", value=True)
 
+# Selector de cuentas a completar con API (se rellena después de tener un maestro)
+st.markdown("### 🎯 Programa 2: elegir cuentas a completar")
+
+modo_cuentas = st.radio(
+    "Modo de selección",
+    ["Todas (excepto excluidas)", "Seleccionar manualmente"],
+    horizontal=True
+)
+cuentas_seleccionadas = None  # None = todas
+
 if st.button("Procesar"):
     if sigfe_file is None:
         st.error("Falta SA_MayorPresupuestario.xls")
@@ -515,7 +517,24 @@ if st.button("Procesar"):
                 ejecutar_programa_1(str(ruta_sigfe), str(ruta_maestro))
 
             if run_p2:
-                ejecutar_programa_2(str(ruta_maestro))
+                wb_temp = load_workbook(str(ruta_maestro))
+                hojas = wb_temp.sheetnames
+                excluidas = {"220400400101", "220400400102"}
+                hojas_disponibles = [h for h in hojas if h not in excluidas]
+                if modo_cuentas == "Seleccionar manualmente":
+                  cuentas_seleccionadas = st.multiselect("Selecciona cuentas a completar ahora",
+                      options=hojas_disponibles,
+                      default=hojas_disponibles[:2] if len(hojas_disponibles) >= 2 else hojas_disponibles,
+                      key="sel_cuentas_api"
+                  )
+
+                if not cuentas_seleccionadas:
+                    st.warning("No seleccionaste ninguna cuenta. Se omite Programa 2.")
+                else:
+                     ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=set(cuentas_seleccionadas))
+            else:
+                ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=None)
+
 
             st.session_state.excel_bytes = ruta_maestro.read_bytes()
             st.success(f"✅ Listo. Archivo generado: {len(st.session_state.excel_bytes):,} bytes")
