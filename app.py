@@ -605,11 +605,15 @@ if excel_actual:
 else:
     st.info("Aún no hay archivo para descargar. Ejecuta Programa 1.")
 
-if st.session_state.excel_bytes:
+excel_actual = st.session_state.get("excel_bytes_final") or st.session_state.get("excel_bytes_p1")
+
+if excel_actual:
     st.download_button(
         "⬇️ Descargar DevengosCuentas2026.xlsx",
-        data=st.session_state.excel_bytes,
+        data=excel_actual,
         file_name="DevengosCuentas2026.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
+else:
+    st.info("Aún no hay archivo para descargar. Ejecuta Programa 1.")
 
