@@ -20,7 +20,7 @@ from openpyxl.utils import get_column_letter
 # CONFIG STREAMLIT
 # =========================
 st.set_page_config(page_title="DevengosCuentas2026", layout="wide")
-st.title("DevengosCuentas2026 — Programa 1 + Programa 2")
+st.title("App DevengosCuentas2026")
 
 # --- API KEY SOLO POR SECRETS (NO input en página)
 try:
@@ -483,7 +483,7 @@ def ejecutar_programa_2(ruta_maestro):
 # =========================
 # UI + DESCARGA (NO se rompe)
 # =========================
-sigfe_file = st.file_uploader("1) Subir SA_MayorPresupuestario.xls", type=["xls", "xlsx"])
+sigfe_file = st.file_uploader("1) Suba el SA_MayorPresupuestario.xls aqui master, tal cual", type=["xls", "xlsx"])
 maestro_file = st.file_uploader("2) (Opcional) Subir DevengosCuentas2026.xlsx existente", type=["xlsx"])
 
 if "excel_bytes" not in st.session_state:
