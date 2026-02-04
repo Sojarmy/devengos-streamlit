@@ -640,21 +640,30 @@ else:
             st.session_state.sel_hojas_api = []
 
     if st.button("2️⃣ Completar API (Programa 2)", key="btn_run_p2"):
-        if not seleccion:
-            st.warning("No seleccionaste ninguna cuenta.")
-            st.stop()
+      if not seleccion:
+          st.warning("No seleccionaste ninguna cuenta.")
+          st.stop()
 
-        with st.spinner("Consultando API y completando Excel..."):
-            with tempfile.TemporaryDirectory() as tmpdir:
-                tmp = Path(tmpdir)
-                ruta_maestro = tmp / "DevengosCuentas2026.xlsx"
+    with st.spinner("Consultando API y completando Excel..."):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            ruta_maestro = tmp / "DevengosCuentas2026.xlsx"
+
+            # ✅ BASE CORRECTA:
+            # - Si el usuario subió un Excel → trabajar sobre ese
+            # - Si NO subió → usar el generado por Programa 1
+            if maestro_file is not None:
+                ruta_maestro.write_bytes(maestro_file.getbuffer())
+                base_usada = "archivo subido por el usuario"
+            else:
                 ruta_maestro.write_bytes(st.session_state.excel_bytes_p1)
+                base_usada = "archivo generado por Programa 1"
 
-                ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=set(seleccion))
+            ejecutar_programa_2(str(ruta_maestro), hojas_permitidas=set(seleccion))
 
-                st.session_state.excel_bytes_final = ruta_maestro.read_bytes()
+            st.session_state.excel_bytes_final = ruta_maestro.read_bytes()
 
-        st.success(f"✅ Programa 2 listo. Cuentas procesadas: {len(seleccion)}")
+    st.success(f"✅ Programa 2 listo ({base_usada}). Cuentas procesadas: {len(seleccion)}")
 
 st.markdown("### 3️⃣ Descargar")
 
