@@ -627,7 +627,7 @@ if "run_p2" not in st.session_state:
 
 # ✅ Guardar selección en session_state (para que no se pierda)
 if "sel_hojas_api" not in st.session_state:
-    st.session_state.sel_hojas_api = []
+    st.session_state.setdefault("sel_hojas_api", [])
 
 EXCLUIDAS = {"220400400101", "220400400102"}
 
@@ -659,7 +659,7 @@ with colA:
                 st.session_state.hojas_generadas = hojas
 
                 st.session_state.excel_bytes_final = None
-                st.session_state.sel_hojas_api = []  # reset selección
+                st.session_state.pop("sel_hojas_api", None)  # reset seguro (no rompe widget)
 
                 st.success(f"✅ Programa 1 listo. Pestañas generadas: {len(hojas)}")
 
