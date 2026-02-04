@@ -334,7 +334,7 @@ def extraer_codigo_oc(texto):
     if texto is None:
         return None
     s = normalizar_guiones(str(texto))
-    m = re.search(r"(\d{6,})\s*-\s*(\d{1,})\s*-\s*([A-Za-z]{1,6}\d{1,4})", s)
+    m = re.search(r"\b(\d{3,})\s*-\s*(\d{1,})\s*-\s*([A-Za-z]{1,6}\d{1,4})\b", s)
     if not m:
         return None
     return f"{m.group(1)}-{m.group(2)}-{m.group(3).upper()}"
@@ -346,9 +346,23 @@ def mapear_headers_fila1(ws):
         if v is None:
             continue
         k = str(v).strip()
-        if k:
-            headers[k] = col
+        if not k:
+            continue
+        headers[k] = col
     return headers
+
+def encontrar_columna_texto_oc(headers):
+    # 1) Caso ideal
+    if "Título" in headers:
+        return headers["Título"]
+
+    # 2) Tu caso: el header de la col 3 tiene "DEVENGOS 2026 - CUENTA ..."
+    for k, col in headers.items():
+        if str(k).strip().upper().startswith("DEVENGOS 2026 - CUENTA"):
+            return col
+
+    # 3) Fallback: en tu layout siempre es la columna 3
+    return 3
 
 def obtener_datos_oc(session, codigo_oc):
     url = "https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json"
@@ -454,10 +468,8 @@ def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
 
         headers = mapear_headers_fila1(ws)
 
-        # ✅ Usar la columna REAL donde está el texto con la OC
-        if "Título" not in headers:
-            continue
-        col_titulo = headers["Título"]
+        # ✅ Encontrar la columna con el texto donde viene la OC (aunque el header sea DEVENGOS...)
+        col_titulo = encontrar_columna_texto_oc(headers)
 
         if "Codigo_OC" not in headers:
             continue
