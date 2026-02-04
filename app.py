@@ -15,6 +15,34 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 
+import re
+import json
+
+_ILLEGAL_XL_CHARS_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
+
+def excel_safe_value(v):
+    if v is None:
+        return None
+
+    if isinstance(v, (int, float, bool)):
+        return v
+
+    if isinstance(v, (dict, list, tuple, set)):
+        try:
+            v = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            v = str(v)
+
+    if not isinstance(v, str):
+        v = str(v)
+
+    v = _ILLEGAL_XL_CHARS_RE.sub("", v)
+    v = v.replace("\r\n", "\n").replace("\r", "\n")
+
+    if len(v) > 32767:
+        v = v[:32767]
+
+    return v
 
 # =========================
 # CONFIG STREAMLIT
@@ -465,7 +493,7 @@ def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
 
             for campo, valor in datos.items():
                 if campo in headers:
-                    ws.cell(row=fila, column=headers[campo]).value = valor
+                    ws.cell(row=fila, column=headers[campo]).value = excel_safe_value(valor)
 
             fila += 1
 
