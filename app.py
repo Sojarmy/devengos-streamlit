@@ -662,7 +662,7 @@ with colA:
 
                 st.success(f"✅ Programa 1 listo. Pestañas generadas: {len(hojas)}")
 
-st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar xD1")
+st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar xDXD1")
 
 if not st.session_state.get("excel_bytes_p1"):
     st.info("Primero ejecuta **Programa 1** para generar el Excel.")
