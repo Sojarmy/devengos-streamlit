@@ -534,7 +534,7 @@ with colA:
 # -------------------------
 # PASO 2: Seleccionar pestañas + Ejecutar Programa 2
 # -------------------------
-st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar")
+st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar xDDD")
 
 if not st.session_state.get("excel_bytes_p1"):
     st.info("Primero ejecuta **Programa 1** para generar el Excel.")
