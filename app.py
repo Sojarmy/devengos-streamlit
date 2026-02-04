@@ -315,7 +315,7 @@ def ejecutar_programa_1(ruta_nuevo, ruta_maestro):
 # =========================
 TIMEOUT = 25
 MAX_REINTENTOS = 4
-PAUSA_ENTRE_LLAMADAS = 0.25
+PAUSA_ENTRE_LLAMADAS = 0.75
 
 MAX_FALLOS_OC = 3
 
@@ -428,13 +428,21 @@ def obtener_datos_oc(session, codigo_oc):
 
 def escribir_hoja_errores(wb, errores):
     nombre = "ERRORES_API"
-    if nombre in wb.sheetnames:
-        del wb[nombre]
-    ws_err = wb.create_sheet(nombre)
+    headers_err = ["Hoja", "Fila", "Codigo_OC", "Motivo", "Detalle", "Faltan", "Titulo", "Timestamp"]
 
-    headers_err = ["Hoja", "Fila", "Codigo_OC", "Motivo", "Detalle", "Faltan", "Titulo"]
-    ws_err.append(headers_err)
-    ws_err.freeze_panes = "A2"
+    if nombre in wb.sheetnames:
+        ws_err = wb[nombre]
+        # Si está vacía o sin headers, crear headers
+        if ws_err.max_row < 1 or (ws_err.cell(row=1, column=1).value != "Hoja"):
+            ws_err.delete_rows(1, ws_err.max_row)
+            ws_err.append(headers_err)
+            ws_err.freeze_panes = "A2"
+    else:
+        ws_err = wb.create_sheet(nombre)
+        ws_err.append(headers_err)
+        ws_err.freeze_panes = "A2"
+
+    ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     for e in errores:
         ws_err.append([
@@ -445,6 +453,7 @@ def escribir_hoja_errores(wb, errores):
             excel_safe_value(e.get("Detalle", "")),
             excel_safe_value(e.get("Faltan", "")),
             excel_safe_value(e.get("Titulo", "")),
+            ts,
         ])
 
 def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
