@@ -634,7 +634,7 @@ EXCLUIDAS = {"220400400101", "220400400102"}
 colA, colB = st.columns(2)
 
 with colA:
-    if st.button("1️⃣ Generar Excel (Programa 1 XD232)"):
+    if st.button("1️⃣ Generar Excel (Programa 1 Xasdasdasd2)"):
         if sigfe_file is None:
             st.error("Falta SA_MayorPresupuestario.xls")
             st.stop()
