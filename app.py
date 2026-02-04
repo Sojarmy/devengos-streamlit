@@ -668,27 +668,40 @@ st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar xDXD1")
 if not st.session_state.get("excel_bytes_p1"):
     st.info("Primero ejecuta **Programa 1** para generar el Excel.")
 else:
+    # =========================
+    # Selección de cuentas (Programa 2) - FIX session_state
+    # =========================
     hojas = st.session_state.get("hojas_generadas", [])
 
-    # Multiselect controlado por session_state
+    # Callbacks (única forma válida de modificar el state del multiselect)
+    def cb_sel_todas():
+        st.session_state["sel_hojas_api"] = hojas
+
+    def cb_limpiar():
+        st.session_state["sel_hojas_api"] = []
+
+    # Multiselect (NO tocar session_state directamente después)
     seleccion = st.multiselect(
         "Escribe para buscar y selecciona las cuentas a completar (Programa 2)",
         options=hojas,
-        default=st.session_state.sel_hojas_api,
+        default=st.session_state.get("sel_hojas_api", []),
         key="sel_hojas_api"
     )
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("✅ Seleccionar todas", key="btn_sel_todas"):
-            st.session_state.sel_hojas_api = hojas
-            st.rerun()
+        st.button(
+            "✅ Seleccionar todas",
+            key="btn_sel_todas",
+            on_click=cb_sel_todas
+        )
     with c2:
-        if st.button("🧹 Limpiar", key="btn_limpiar"):
-            st.session_state.sel_hojas_api = []
-            st.rerun()
+        st.button(
+            "🧹 Limpiar",
+            key="btn_limpiar",
+            on_click=cb_limpiar
+        )
 
-    # Botón: SOLO prende el flag
     if st.button("2️⃣ Completar API (Programa 2)", key="btn_run_p2"):
         if not st.session_state.sel_hojas_api:
             st.warning("No seleccionaste ninguna cuenta.")
