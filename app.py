@@ -318,6 +318,8 @@ MAX_REINTENTOS = 4
 PAUSA_ENTRE_LLAMADAS = 0.75
 
 MAX_FALLOS_OC = 3
+PREFIJOS_OC_OMITIR = ("621-",)
+#(si mañana quieres omitir otras, agregas: ("621-", "622-", "900-"))
 
 def normalizar_guiones(s: str) -> str:
     return (s.replace("\u2010", "-")
@@ -498,6 +500,30 @@ def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
                 })
                 fila += 1
                 continue
+                
+            # ✅ Si la OC está en lista de omitidas, NO consultar API (por decisión de negocio)
+            if codigo_oc.startswith(PREFIJOS_OC_OMITIR):
+                # (Opcional) dejar registro en ERRORES_API para auditoría
+                errores.append({
+                    "Hoja": ws.title,
+                    "Fila": fila,
+                    "Codigo_OC": codigo_oc,
+                    "Motivo": "OC_OMITIDA_POR_REGLA",
+                    "Detalle": f"Se omitió consulta API para prefijos: {PREFIJOS_OC_OMITIR}",
+                    "Titulo": str(titulo)[:500],
+                })
+
+                # Igual dejar escrito el Codigo_OC si estaba vacío
+                celda_cod = ws.cell(row=fila, column=col_codigo)
+                if celda_cod.value in (None, ""):
+                    celda_cod.value = excel_safe_value(codigo_oc)
+
+                fila += 1
+                continue
+
+
+
+
 
             # ✅ Si hay OC en el texto, siempre dejarla escrita en Codigo_OC
             celda_cod = ws.cell(row=fila, column=col_codigo)
