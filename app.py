@@ -46,6 +46,7 @@ def excel_safe_value(v):
 # =========================
 st.set_page_config(page_title="DevengosCuentas2026", layout="wide")
 st.title("App DevengosCuentas2026")
+st.caption("BUILD: 9640a48 - 2026-02-04")
 
 try:
     API_KEY = (st.secrets.get("API_KEY", "") or "").strip()
