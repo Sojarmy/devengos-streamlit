@@ -9,40 +9,37 @@ import tempfile
 from pathlib import Path
 import os
 from copy import copy
+import json
 
 import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 
-import re
-import json
 
+# =========================
+# Sanitización Excel (evita IllegalCharacterError)
+# =========================
 _ILLEGAL_XL_CHARS_RE = re.compile(r"[\x00-\x08\x0B\x0C\x0E-\x1F]")
 
 def excel_safe_value(v):
     if v is None:
         return None
-
     if isinstance(v, (int, float, bool)):
         return v
-
     if isinstance(v, (dict, list, tuple, set)):
         try:
             v = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
         except Exception:
             v = str(v)
-
     if not isinstance(v, str):
         v = str(v)
-
     v = _ILLEGAL_XL_CHARS_RE.sub("", v)
     v = v.replace("\r\n", "\n").replace("\r", "\n")
-
     if len(v) > 32767:
         v = v[:32767]
-
     return v
+
 
 # =========================
 # CONFIG STREAMLIT
@@ -50,7 +47,6 @@ def excel_safe_value(v):
 st.set_page_config(page_title="DevengosCuentas2026", layout="wide")
 st.title("App DevengosCuentas2026")
 
-# --- API KEY SOLO POR SECRETS (NO input en página)
 try:
     API_KEY = (st.secrets.get("API_KEY", "") or "").strip()
 except Exception:
@@ -60,11 +56,10 @@ if not API_KEY:
     st.error("Falta API_KEY en Secrets (Streamlit Cloud → Manage app → Settings → Secrets).")
     st.stop()
 
-# =========================
-# (PROGRAMA 1) — TAL CUAL
-# =========================
 
-# COLUMNAS API (PREPARADAS) - NUEVO ESQUEMA
+# =========================
+# (PROGRAMA 1)
+# =========================
 MAX_ITEMS = 20
 
 API_COLUMNAS = [
@@ -183,9 +178,8 @@ def leer_maestro(ruta_maestro):
             if col not in temp.columns:
                 temp[col] = ""
 
-        for col in ["Título"]:
-            if col not in temp.columns:
-                temp[col] = ""
+        if "Título" not in temp.columns:
+            temp["Título"] = ""
 
         dfs.append(temp)
 
@@ -247,13 +241,8 @@ def aplicar_formato_corporativo(wb, df_total):
         header_titulo = f"DEVENGOS 2026 - CUENTA {cuenta} - {nombre_cuenta}"
 
         for j, colname in enumerate(COLUMNAS_ORDEN, start=1):
-            if j == 3:
-                valor_header = header_titulo
-            else:
-                valor_header = colname
-
             c = ws.cell(row=1, column=j)
-            c.value = valor_header
+            c.value = header_titulo if j == 3 else colname
             c.font = header_font
             c.fill = header_fill
             c.border = thin_border
@@ -277,7 +266,7 @@ def aplicar_formato_corporativo(wb, df_total):
             for cell in col_cells:
                 if cell.value is not None:
                     max_length = max(max_length, len(str(cell.value)))
-            ws.column_dimensions[col_letter].width = max_length + 2
+            ws.column_dimensions[col_letter].width = min(max_length + 2, 70)
 
 
 def ejecutar_programa_1(ruta_nuevo, ruta_maestro):
@@ -316,18 +305,19 @@ def ejecutar_programa_1(ruta_nuevo, ruta_maestro):
                     celda_modelo = ws.cell(row=fila_modelo, column=col_idx)
                     copiar_estilo(celda_modelo, celda_nueva)
 
-    df_total = pd.concat([df_maestro, df_nuevos], ignore_index=True)
+    df_total = df_nuevos.copy() if df_maestro.empty else pd.concat([df_maestro, df_nuevos], ignore_index=True)
     aplicar_formato_corporativo(wb, df_total)
     wb.save(ruta_maestro)
 
 
 # =========================
-# (PROGRAMA 2) — TAL CUAL
+# (PROGRAMA 2)
 # =========================
 TIMEOUT = 25
 MAX_REINTENTOS = 4
-PAUSA_ENTRE_LLAMADAS = 0.25  # seg
+PAUSA_ENTRE_LLAMADAS = 0.25
 
+MAX_FALLOS_OC = 3
 
 def normalizar_guiones(s: str) -> str:
     return (s.replace("\u2010", "-")
@@ -336,16 +326,18 @@ def normalizar_guiones(s: str) -> str:
              .replace("\u2013", "-")
              .replace("\u2212", "-"))
 
-
 def extraer_codigo_oc(texto):
+    """
+    Extrae OC incluso si viene con espacios: 1057547 - 588 - SE26
+    o guiones raros (normalizados).
+    """
     if texto is None:
         return None
     s = normalizar_guiones(str(texto))
-    m = re.search(r"(\d+)-(\d+)-([A-Za-z0-9]+)", s)
+    m = re.search(r"(\d{6,})\s*-\s*(\d{1,})\s*-\s*([A-Za-z]{1,6}\d{1,4})", s)
     if not m:
         return None
     return f"{m.group(1)}-{m.group(2)}-{m.group(3).upper()}"
-
 
 def mapear_headers_fila1(ws):
     headers = {}
@@ -358,21 +350,9 @@ def mapear_headers_fila1(ws):
             headers[k] = col
     return headers
 
-
-def buscar_columna_texto(ws, texto_objetivo, fila=1):
-    texto_objetivo = str(texto_objetivo).strip().lower()
-    for col in range(1, ws.max_column + 1):
-        v = ws.cell(row=fila, column=col).value
-        if v is None:
-            continue
-        if texto_objetivo in str(v).strip().lower():
-            return col
-    return None
-
 def obtener_datos_oc(session, codigo_oc):
     url = "https://api.mercadopublico.cl/servicios/v1/publico/ordenesdecompra.json"
     params = {"codigo": codigo_oc, "ticket": API_KEY}
-
     last_err = None
 
     for intento in range(1, MAX_REINTENTOS + 1):
@@ -387,19 +367,18 @@ def obtener_datos_oc(session, codigo_oc):
                 resp = None
 
             if status != 200:
-                last_err = f"status {status}"
+                last_err = f"status {status} body={r.text[:200]}"
             elif not resp:
-                pass
+                last_err = f"respuesta vacía (status {status})"
             else:
                 if resp.get("Listado"):
                     o = resp["Listado"][0]
                     datos = {}
 
-                    datos["Codigo_OC"] = o.get("Codigo")
-                    datos["N_Licitacion"] = o.get("CodigoLicitacion")
+                    datos["Codigo_OC"] = o.get("Codigo") or codigo_oc
+                    datos["N_Licitacion"] = o.get("CodigoLicitacion") or ""
 
-                    datos["Descripcion_OC"] = (o.get("Descripcion", "") or "") \
-                        .replace("\n", " ").replace("\r", " ")
+                    datos["Descripcion_OC"] = (o.get("Descripcion", "") or "").replace("\n", " ").replace("\r", " ")
 
                     fecha = o.get("Fechas", {}).get("FechaCreacion")
                     datos["FechaCreacion_OC"] = (
@@ -408,19 +387,17 @@ def obtener_datos_oc(session, codigo_oc):
                     )
 
                     datos["TotalNeto_OC"] = o.get("TotalNeto")
-                    datos["NombreContacto_OC"] = (o.get("Comprador", {}) or {}).get("NombreContacto")
+                    datos["NombreContacto_OC"] = (o.get("Comprador", {}) or {}).get("NombreContacto") or ""
                     datos["CantidadItems_OC"] = (o.get("Items", {}) or {}).get("Cantidad") or 0
 
                     prov = o.get("Proveedor", {}) or {}
-                    datos["Proveedor_Nombre"] = prov.get("Nombre", "")
+                    datos["Proveedor_Nombre"] = prov.get("Nombre", "") or ""
                     datos["Proveedor_Rut"] = prov.get("RutSucursal") or prov.get("Rut") or ""
 
                     items = (o.get("Items", {}) or {}).get("Listado", []) or []
-
                     for i, item in enumerate(items[:MAX_ITEMS], start=1):
                         datos[f"Cantidad_{i}"] = item.get("Cantidad")
-                        datos[f"EspecificacionComprador_{i}"] = (item.get("EspecificacionComprador", "") or "") \
-                            .replace("\n", " ").replace("\r", " ")
+                        datos[f"EspecificacionComprador_{i}"] = (item.get("EspecificacionComprador", "") or "").replace("\n", " ").replace("\r", " ")
                         datos[f"PrecioNeto_{i}"] = item.get("PrecioNeto")
 
                     return datos, None
@@ -435,110 +412,170 @@ def obtener_datos_oc(session, codigo_oc):
 
     return None, last_err or "sin datos"
 
+def escribir_hoja_errores(wb, errores):
+    nombre = "ERRORES_API"
+    if nombre in wb.sheetnames:
+        del wb[nombre]
+    ws_err = wb.create_sheet(nombre)
+
+    headers_err = ["Hoja", "Fila", "Codigo_OC", "Motivo", "Detalle", "Faltan", "Titulo"]
+    ws_err.append(headers_err)
+    ws_err.freeze_panes = "A2"
+
+    for e in errores:
+        ws_err.append([
+            excel_safe_value(e.get("Hoja", "")),
+            excel_safe_value(e.get("Fila", "")),
+            excel_safe_value(e.get("Codigo_OC", "")),
+            excel_safe_value(e.get("Motivo", "")),
+            excel_safe_value(e.get("Detalle", "")),
+            excel_safe_value(e.get("Faltan", "")),
+            excel_safe_value(e.get("Titulo", "")),
+        ])
 
 def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
     wb = load_workbook(ruta_maestro)
-    errores = []  # lista de dicts con el log por fila
-    # ✅ PROBAR SOLO HOJA 1 y 2
-    HOJAS_OMITIDAS = {"220400400101","220400400102"}
+    errores = []
+
+    HOJAS_OMITIDAS = {"220400400101", "220400400102"}
 
     cache_ok = {}
-    cache_fail = {}
+    cache_fail = {}  # codigo_oc -> cantidad_fallos
 
     session = requests.Session()
+
+    CAMPOS_CLAVE_API = ["Proveedor_Nombre", "Proveedor_Rut", "N_Licitacion", "Descripcion_OC", "FechaCreacion_OC"]
 
     for ws in wb.worksheets:
         if ws.title in HOJAS_OMITIDAS:
             continue
-
         if hojas_permitidas is not None and ws.title not in hojas_permitidas:
             continue
 
         headers = mapear_headers_fila1(ws)
 
-        col_titulo = buscar_columna_texto(ws, "DEVENGOS 2026 - CUENTA", fila=1)
-        if not col_titulo:
+        # ✅ Usar la columna REAL donde está el texto con la OC
+        if "Título" not in headers:
             continue
+        col_titulo = headers["Título"]
 
         if "Codigo_OC" not in headers:
             continue
-
         col_codigo = headers["Codigo_OC"]
-        fila = 2
 
+        fila = 2
         while fila <= ws.max_row:
-            titulo = ws.cell(row=fila, column=col_titulo).value
+            titulo = ws.cell(row=fila, column=col_titulo).value or ""
 
             codigo_oc = extraer_codigo_oc(titulo)
             if not codigo_oc:
                 errores.append({
-                  "Hoja": ws.title,
-                  "Fila": fila,
-                  "Motivo": "NO_SE_ENCONTRO_OC_EN_TEXTO",
-                  "Titulo": str(header_titulo)[:500]
+                    "Hoja": ws.title,
+                    "Fila": fila,
+                    "Motivo": "NO_SE_ENCONTRO_OC_EN_TEXTO",
+                    "Titulo": str(titulo)[:500],
                 })
                 fila += 1
                 continue
 
-            if ws.cell(row=fila, column=col_codigo).value:
+            # ✅ Si hay OC en el texto, siempre dejarla escrita en Codigo_OC
+            celda_cod = ws.cell(row=fila, column=col_codigo)
+            if celda_cod.value in (None, ""):
+                celda_cod.value = excel_safe_value(codigo_oc)
+
+            # Completar solo si faltan campos clave
+            faltan = []
+            for c in CAMPOS_CLAVE_API:
+                if c in headers:
+                    v = ws.cell(row=fila, column=headers[c]).value
+                    if v in (None, ""):
+                        faltan.append(c)
+
+            if not faltan:
                 fila += 1
                 continue
 
+            # Cache + control de fallos
             if codigo_oc in cache_ok:
                 datos = cache_ok[codigo_oc]
+                err = None
             else:
+                if cache_fail.get(codigo_oc, 0) >= MAX_FALLOS_OC:
+                    errores.append({
+                        "Hoja": ws.title,
+                        "Fila": fila,
+                        "Codigo_OC": codigo_oc,
+                        "Motivo": "API_SKIPPED_POR_MUCHOS_FALLOS",
+                        "Detalle": f"fallos={cache_fail.get(codigo_oc, 0)}",
+                        "Faltan": ", ".join(faltan),
+                        "Titulo": str(titulo)[:500],
+                    })
+                    fila += 1
+                    continue
+
                 time.sleep(PAUSA_ENTRE_LLAMADAS)
                 datos, err = obtener_datos_oc(session, codigo_oc)
 
                 if datos:
                     cache_ok[codigo_oc] = datos
                 else:
+                    cache_fail[codigo_oc] = cache_fail.get(codigo_oc, 0) + 1
                     errores.append({
-                      "Hoja": ws.title,
-                      "Fila": fila,
-                      "Codigo_OC": codigo_oc,
-                      "Motivo": "API_FAIL",
-                      "Detalle": (err or "")[:500],
-                      "Titulo": str(Título)[:500],
+                        "Hoja": ws.title,
+                        "Fila": fila,
+                        "Codigo_OC": codigo_oc,
+                        "Motivo": "API_FAIL",
+                        "Detalle": (err or "")[:500],
+                        "Faltan": ", ".join(faltan),
+                        "Titulo": str(titulo)[:500],
                     })
-
-                    cache_fail[codigo_oc] = err
                     fila += 1
                     continue
 
-            for campo, valor in datos.items():
+            # Log si API OK pero aún faltan datos clave
+            faltan_post = []
+            for c in faltan:
+                v = (datos or {}).get(c)
+                if v in (None, "", "No disponible"):
+                    faltan_post.append(c)
+            if faltan_post:
+                errores.append({
+                    "Hoja": ws.title,
+                    "Fila": fila,
+                    "Codigo_OC": codigo_oc,
+                    "Motivo": "API_OK_PERO_FALTAN_DATOS",
+                    "Faltan": ", ".join(faltan_post),
+                    "Titulo": str(titulo)[:500],
+                })
+
+            # Escribir columnas existentes
+            for campo, valor in (datos or {}).items():
                 if campo in headers:
                     ws.cell(row=fila, column=headers[campo]).value = excel_safe_value(valor)
 
             fila += 1
 
+    escribir_hoja_errores(wb, errores)
     wb.save(ruta_maestro)
 
 
 # =========================
-# UI + DESCARGA (NO se rompe)
-# =========================
-# =========================
-# UI (2 PASOS): P1 -> elegir pestañas -> P2
+# UI + DESCARGA
 # =========================
 sigfe_file = st.file_uploader("1) Subir SA_MayorPresupuestario.xls", type=["xls", "xlsx"])
 maestro_file = st.file_uploader("2) (Opcional) Subir DevengosCuentas2026.xlsx existente", type=["xlsx"])
 
-# Estados persistentes
 if "excel_bytes_p1" not in st.session_state:
-    st.session_state.excel_bytes_p1 = None  # Excel después de P1
+    st.session_state.excel_bytes_p1 = None
 if "hojas_generadas" not in st.session_state:
-    st.session_state.hojas_generadas = []   # Lista de pestañas del Excel P1
+    st.session_state.hojas_generadas = []
 if "excel_bytes_final" not in st.session_state:
-    st.session_state.excel_bytes_final = None  # Excel final (después de P2)
+    st.session_state.excel_bytes_final = None
 
 EXCLUIDAS = {"220400400101", "220400400102"}
 
 colA, colB = st.columns(2)
 
-# -------------------------
-# PASO 1: Ejecutar Programa 1
-# -------------------------
 with colA:
     if st.button("1️⃣ Generar Excel (Programa 1)"):
         if sigfe_file is None:
@@ -556,35 +593,25 @@ with colA:
                 if maestro_file is not None:
                     ruta_maestro.write_bytes(maestro_file.getbuffer())
 
-                # Ejecuta P1
                 ejecutar_programa_1(str(ruta_sigfe), str(ruta_maestro))
 
-                # Guarda Excel en memoria (persistente)
                 st.session_state.excel_bytes_p1 = ruta_maestro.read_bytes()
 
-                # Lee pestañas generadas
                 wb_tmp = load_workbook(str(ruta_maestro), read_only=True)
                 hojas = [h for h in wb_tmp.sheetnames if h not in EXCLUIDAS]
                 st.session_state.hojas_generadas = hojas
 
-                st.session_state.excel_bytes_final = None  # resetea final si rehaces P1
+                st.session_state.excel_bytes_final = None
 
                 st.success(f"✅ Programa 1 listo. Pestañas generadas: {len(hojas)}")
 
-# -------------------------
-# PASO 2: Seleccionar pestañas + Ejecutar Programa 2
-# -------------------------
-# -------------------------
-# PASO 2: Seleccionar pestañas + Ejecutar Programa 2
-# -------------------------
-st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar xDDD")
+st.markdown("### 2️⃣ Selecciona las cuentas/pestañas a completar")
 
 if not st.session_state.get("excel_bytes_p1"):
     st.info("Primero ejecuta **Programa 1** para generar el Excel.")
 else:
     hojas = st.session_state.get("hojas_generadas", [])
 
-    # ✅ Multiselect = lista desplegable + buscador (escribes y filtra solo)
     seleccion = st.multiselect(
         "Escribe para buscar y selecciona las cuentas a completar (Programa 2)",
         options=hojas,
@@ -592,7 +619,6 @@ else:
         key="sel_hojas_api"
     )
 
-    # ✅ Botones rápidos (opcionales)
     c1, c2 = st.columns(2)
     with c1:
         if st.button("✅ Seleccionar todas", key="btn_sel_todas"):
@@ -618,11 +644,6 @@ else:
 
         st.success(f"✅ Programa 2 listo. Cuentas procesadas: {len(seleccion)}")
 
-
-# -------------------------
-# Descarga final
-# -------------------------
-
 st.markdown("### 3️⃣ Descargar")
 
 excel_actual = st.session_state.get("excel_bytes_final") or st.session_state.get("excel_bytes_p1")
@@ -633,8 +654,9 @@ if excel_actual:
         data=excel_actual,
         file_name="DevengosCuentas2026.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="download_devengos"  # ✅ clave única
+        key="download_devengos"
     )
 else:
     st.info("Aún no hay archivo para descargar. Ejecuta Programa 1.")
+
 
