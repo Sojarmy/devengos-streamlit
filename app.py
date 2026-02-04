@@ -438,7 +438,7 @@ def obtener_datos_oc(session, codigo_oc):
 
 def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
     wb = load_workbook(ruta_maestro)
-
+    errores = []  # lista de dicts con el log por fila
     # ✅ PROBAR SOLO HOJA 1 y 2
     HOJAS_OMITIDAS = {"220400400101","220400400102"}
 
@@ -471,6 +471,12 @@ def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
 
             codigo_oc = extraer_codigo_oc(titulo)
             if not codigo_oc:
+                errores.append({
+                  "Hoja": ws.title,
+                  "Fila": fila,
+                  "Motivo": "NO_SE_ENCONTRO_OC_EN_TEXTO",
+                  "Titulo": str(header_titulo)[:500]
+                })
                 fila += 1
                 continue
 
@@ -487,6 +493,15 @@ def ejecutar_programa_2(ruta_maestro, hojas_permitidas=None):
                 if datos:
                     cache_ok[codigo_oc] = datos
                 else:
+                    errores.append({
+                      "Hoja": ws.title,
+                      "Fila": fila,
+                      "Codigo_OC": codigo_oc,
+                      "Motivo": "API_FAIL",
+                      "Detalle": (err or "")[:500],
+                      "Titulo": str(Título)[:500],
+                    })
+
                     cache_fail[codigo_oc] = err
                     fila += 1
                     continue
